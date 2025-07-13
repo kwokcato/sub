@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>教師代課系統 V9</title>
+    <title>教師代課系統 V10</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -263,7 +263,7 @@
     </style>
 </head>
 <body>
-    <h1>教師代課系統 V9</h1>
+    <h1>教師代課系統 V10</h1>
     
     <div class="priority-info">
         <strong>代課教師選擇優先級：</strong><br>
@@ -358,6 +358,7 @@
         let substituteRecords = [];
         let currentSubstitutes = [];
         let todayTeacherLoad = {};
+        let lastDay = null;
 
         function setDefaultDate() {
             const dateInput = document.getElementById('dateInput');
@@ -419,13 +420,6 @@
                 }
             });
             return data;
-        }
-        function checkIfRegularTeacher(teacher, classToCheck, subject) {
-            return timetableData.some(item => 
-                item.teacher === teacher && 
-                item.class === classToCheck && 
-                item.subject === subject
-            );
         }
         function showPendingUpdates() {
             const pendingDiv = document.getElementById('pending-updates');
@@ -638,6 +632,18 @@
         function renderExcludeTeachers(sortByValue) {
             const excludeTeachersDiv = document.getElementById('excludeTeachers');
             excludeTeachersDiv.innerHTML = '';
+            let dateInput = document.getElementById('dateInput').value;
+            let dayOfWeek = getDayOfWeek(dateInput);
+            let day = dayOfWeek === 0 ? 7 : dayOfWeek;
+            let s6Finished = document.getElementById('s6Finished')?.checked;
+            let teacherTodayLoad = {};
+            allTeachers.forEach(teacher => {
+                teacherTodayLoad[teacher] = timetableData.filter(item =>
+                    item.teacher === teacher &&
+                    item.day === day &&
+                    !(s6Finished && item.class && item.class.includes('6'))
+                ).length;
+            });
             let sortedTeachers = [...allTeachers];
             if (sortByValue) {
                 sortedTeachers.sort((a, b) => {
@@ -665,11 +671,13 @@
                 });
                 const label = document.createElement('label');
                 label.htmlFor = `exclude-${teacher}`;
+                // 顯示格式：CCH (3)(-1)
+                let todayLoad = teacherTodayLoad[teacher] || 0;
                 let substStr = '';
                 if (substData.hasOwnProperty(teacher)) {
-                    substStr = ` (${substData[teacher]})`;
+                    substStr = `(${substData[teacher]})`;
                 }
-                label.textContent = teacher + substStr;
+                label.textContent = `${teacher} (${todayLoad})${substStr}`;
                 div.appendChild(checkbox);
                 div.appendChild(label);
                 excludeTeachersDiv.appendChild(div);
@@ -678,6 +686,7 @@
         function generateSubstitutes() {
             const teacherInput = document.getElementById('teacherInput').value.trim();
             const dateInput = document.getElementById('dateInput').value;
+            lastDay = getDayOfWeek(dateInput);
             const maxLoadSelect = document.getElementById('maxLoadSelect');
             const maxLoad = parseInt(maxLoadSelect.value);
             const s6Finished = document.getElementById('s6Finished').checked;
@@ -710,7 +719,7 @@
             timetableData
                 .filter(item => item.teacher === teacherInput && item.day === day)
                 .forEach(lesson => {
-                    if (s6Finished && lesson.class.includes('6')) {
+                    if (s6Finished && lesson.class && lesson.class.includes('6')) {
                         return;
                     }
                     if (!absentLessonsByPeriod[lesson.period]) {
@@ -729,7 +738,7 @@
                 todayTeacherLoad[teacher] = timetableData.filter(item => 
                     item.teacher === teacher &&
                     item.day === day &&
-                    !(s6Finished && item.class.includes('6'))
+                    !(s6Finished && item.class && item.class.includes('6'))
                 ).length;
             });
             renderExcludeTeachers(document.getElementById('sortBySubstValue').checked);
@@ -746,7 +755,7 @@
                 const lessons = timetableData.filter(item => 
                     item.teacher === teacher && 
                     item.day === day &&
-                    !(s6Finished && item.class.includes('6'))
+                    !(s6Finished && item.class && item.class.includes('6'))
                 );
                 teacherOriginalLoad[teacher] = lessons.length;
             });
@@ -756,7 +765,7 @@
                     .filter(item => 
                         item.teacher === teacher && 
                         item.day === day &&
-                        !(s6Finished && item.class.includes('6'))
+                        !(s6Finished && item.class && item.class.includes('6'))
                     )
                     .map(item => item.period)
                     .sort((a, b) => a - b);
@@ -800,9 +809,7 @@
                     if (!alreadyPrimary.has(candidatesArr[i].teacher)) {
                         primary = candidatesArr[i];
                         alreadyPrimary.add(primary.teacher);
-                        // 候選教師: 其餘的、但要random再取十個
                         candidatesList = candidatesArr.filter((c, idx) => idx !== i);
-                        // Shuffle
                         for (let j = candidatesList.length - 1; j > 0; j--) {
                             let k = Math.floor(Math.random() * (j + 1));
                             [candidatesList[j], candidatesList[k]] = [candidatesList[k], candidatesList[j]];
@@ -815,7 +822,6 @@
                     primary = candidatesArr[0];
                     alreadyPrimary.add(primary.teacher);
                     candidatesList = candidatesArr.slice(1);
-                    // Shuffle
                     for (let j = candidatesList.length - 1; j > 0; j--) {
                         let k = Math.floor(Math.random() * (j + 1));
                         [candidatesList[j], candidatesList[k]] = [candidatesList[k], candidatesList[j]];
@@ -892,7 +898,6 @@
                 sub.candidates.splice(candidateIdx, 1);
                 if (oldPrimary) {
                     sub.candidates.push(oldPrimary);
-                    // Shuffle again for randomness
                     for (let j = sub.candidates.length - 1; j > 0; j--) {
                         let k = Math.floor(Math.random() * (j + 1));
                         [sub.candidates[j], sub.candidates[k]] = [sub.candidates[k], sub.candidates[j]];
@@ -922,8 +927,14 @@
                 warningArea.scrollIntoView({ behavior: "smooth", block: "center" });
                 return;
             }
+            const dayOfWeek = getDayOfWeek(document.getElementById('dateInput').value);
+            const day = dayOfWeek === 0 ? 7 : dayOfWeek;
             const maxLoad = parseInt(document.getElementById('maxLoadSelect').value);
             const s6Finished = document.getElementById('s6Finished').checked;
+
+            // 先複製一份 substData
+            let updatedSubstData = {...substData};
+
             pendingUpdates = {};
             substituteRecords = [];
             let confirmedTeachers = new Set();
@@ -950,7 +961,21 @@
                         change: '+1'
                     });
                 });
+                // 同步更新 substData
+                if (!(primary in updatedSubstData)) { updatedSubstData[primary] = 0; }
+                updatedSubstData[primary] += lessons.length;
             });
+            // absentTeacher 減少
+            let absentCount = 0;
+            currentSubstitutes.forEach(sub => {
+                if (!sub.primary) return;
+                absentCount += sub.lessons.length;
+            });
+            if (!(absentTeacher in updatedSubstData)) { updatedSubstData[absentTeacher] = 0; }
+            updatedSubstData[absentTeacher] -= absentCount;
+
+            // 實時更新 substData 全局
+            substData = updatedSubstData;
             showPendingUpdates();
             confirmedTeachers.forEach(teacher => {
                 excludedTeachersSet.add(teacher);
