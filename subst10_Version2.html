@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>教師代課系統</title>
+    <title>教師代課系統 V3</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -263,7 +263,7 @@
     </style>
 </head>
 <body>
-    <h1>教師代課系統 V4</h1>
+    <h1>教師代課系統 V5</h1>
     
     <div class="priority-info">
         <strong>代課教師選擇優先級：</strong><br>
@@ -706,7 +706,7 @@
             });
         }
 
-        // ==== 修正版 generateSubstitutes 及結果渲染 ====
+        // ==== generateSubstitutes 及結果渲染 ====
         function generateSubstitutes() {
             const teacherInput = document.getElementById('teacherInput').value.trim();
             const dateInput = document.getElementById('dateInput').value;
@@ -803,8 +803,8 @@
             for (const period of periods) {
                 const lessons = absentLessonsByPeriod[period];
                 const classes = lessons.map(l => l.class);
-                const subject = lessons[0].subject;
-                const sampleLesson = lessons[0];
+                const subject = lessons[0]?.subject || '';
+                const room = lessons[0]?.room || '';
 
                 // 候選教師排序與資料
                 let candidates = availableTeachers
@@ -900,6 +900,7 @@
                 html += `</div>`;
             });
             html += `<div style="margin-top:20px;"><button id="confirmSubstituteBtn" class="confirm-btn">確認本次安排</button></div>`;
+            html += `<div id="duplicate-warning-area"></div>`;
             document.getElementById('result').innerHTML = html;
 
             // 綁定候選教師點擊事件
@@ -934,6 +935,27 @@
         }
 
         function confirmSubstituteArrangements(absentTeacher, dateInput, leaveType) {
+            // 首選教師唯一性驗證
+            let duplicateTeachers = [];
+            let primaryTeachers = [];
+            currentSubstitutes.forEach(sub => {
+                if (sub.primary) primaryTeachers.push(sub.primary);
+            });
+            let seen = {};
+            primaryTeachers.forEach((t, idx) => {
+                if (seen[t]) {
+                    duplicateTeachers.push(t);
+                } else if (t) {
+                    seen[t] = true;
+                }
+            });
+            if (duplicateTeachers.length > 0) {
+                const warningArea = document.getElementById('duplicate-warning-area');
+                warningArea.innerHTML = `<div class="error">錯誤：每一節的首選教師必須不同。重複教師：${[...new Set(duplicateTeachers)].join(', ')}。請更換其中一節的首選教師。</div>`;
+                // 滾到錯誤訊息
+                warningArea.scrollIntoView({ behavior: "smooth", block: "center" });
+                return;
+            }
             // 根據 currentSubstitutes，生成 pendingUpdates 和 substituteRecords
             const maxLoad = parseInt(document.getElementById('maxLoadSelect').value);
             const s6Finished = document.getElementById('s6Finished').checked;
@@ -944,9 +966,7 @@
                 const period = sub.period;
                 const lessons = sub.lessons;
                 const primary = sub.primary;
-                // 一節可能多班
                 lessons.forEach(lesson => {
-                    // 代堂數只計一堂
                     if (!pendingUpdates[primary]) pendingUpdates[primary] = 0;
                     pendingUpdates[primary] += 1;
                     if (!pendingUpdates[absentTeacher]) pendingUpdates[absentTeacher] = 0;
@@ -965,7 +985,6 @@
                 });
             });
             showPendingUpdates();
-            // 標示已確認
             let html = document.getElementById('result').innerHTML;
             html += `<span class="confirmed">(已確認)</span>`;
             document.getElementById('result').innerHTML = html;
