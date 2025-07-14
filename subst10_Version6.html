@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>教師代課系統 V14</title>
+    <title>教師代課系統 V11</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -38,8 +38,8 @@
         .download-btn { background-color: #9b59b6; color: white; }
         .download-btn:hover { background-color: #8e44ad; }
         .pending-updates { background-color: #fff3cd; padding: 10px; margin-bottom: 15px; border-left: 4px solid #ffc107; grid-column: 1 / -1; display: none; }
-        #pending-updates-list { display: flex; flex-wrap: wrap; gap: 15px; margin: 0; padding: 0; list-style: none; }
-        #pending-updates-list li { white-space: nowrap; }
+        #pending-updates-list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+        #pending-updates-list li { white-space: pre-line; }
         .leave-type { margin: 10px 0; padding: 10px; background-color: #f5f5f5; border-radius: 4px; }
         .leave-type label { display: inline-block; margin-right: 15px; min-width: auto; }
         .priority-toggle { color: #3498db; text-decoration: underline; cursor: pointer; margin-bottom: 10px; display: inline-block; }
@@ -76,7 +76,7 @@
     </style>
 </head>
 <body>
-    <h1>教師代課系統 V14</h1>
+    <h1>教師代課系統 V11</h1>
     <div class="priority-info">
         <strong>代課教師選擇優先級：</strong><br>
         <OL>
@@ -248,21 +248,50 @@
             });
             return data;
         }
+
         function showPendingUpdates() {
             const pendingDiv = document.getElementById('pending-updates');
             const list = document.getElementById('pending-updates-list');
-            if (Object.keys(pendingUpdates).length === 0) {
+            // --- 顯示所有未下載的記錄 ---
+            let allPendingRecords = [];
+            if (Array.isArray(allConfirmedSubstituteRecords)) {
+                allPendingRecords = allPendingRecords.concat(allConfirmedSubstituteRecords);
+            }
+            if (Array.isArray(substituteRecords)) {
+                allPendingRecords = allPendingRecords.concat(substituteRecords);
+            }
+            if (allPendingRecords.length === 0) {
                 pendingDiv.style.display = 'none';
                 return;
             }
+            // 按日期、請假教師、節數排序
+            allPendingRecords.sort((a, b) => {
+                if (a.date !== b.date) return a.date.localeCompare(b.date);
+                if (a.absentTeacher !== b.absentTeacher) return a.absentTeacher.localeCompare(b.absentTeacher);
+                return (parseInt(a.period) || 0) - (parseInt(b.period) || 0);
+            });
+            // 分組合併同一節多班
+            const mergedRecords = groupSubstituteRecords(allPendingRecords);
+            // 逐條顯示
             let html = '';
-            for (const teacher in pendingUpdates) {
-                const change = pendingUpdates[teacher] > 0 ? `+${pendingUpdates[teacher]}` : pendingUpdates[teacher];
-                html += `<li>${teacher}: ${change} 堂</li>`;
-            }
+            mergedRecords.forEach(r => {
+                html += `<li>${[
+                    r.absentTeacher,
+                    r.leaveType,
+                    r.date,
+                    r.weekday,
+                    r.period,
+                    r.substitute,
+                    r.class,
+                    r.subject,
+                    r.room,
+                    r.change
+                ].join(' , ')}</li>`;
+            });
             list.innerHTML = html;
             pendingDiv.style.display = 'block';
         }
+
         function getCurrentDateTimeString() {
             const now = new Date();
             const year = now.getFullYear();
@@ -507,13 +536,20 @@
             document.getElementById('generateBtn').addEventListener('click', function() {
                 try {
                     isResultDisabled = false;
-                    // --- 檢查該請假教師是否當天已安排代堂 ---
                     const teacherInput = document.getElementById('teacherInput').value.trim();
                     const dateInput = document.getElementById('dateInput').value;
+                    // --- 檢查該請假教師是否在"待更新的代課記錄"中出現，不論請假教師/首選教師 ---
+                    let allPendingRecords = [];
+                    if (Array.isArray(allConfirmedSubstituteRecords)) {
+                        allPendingRecords = allPendingRecords.concat(allConfirmedSubstituteRecords);
+                    }
+                    if (Array.isArray(substituteRecords)) {
+                        allPendingRecords = allPendingRecords.concat(substituteRecords);
+                    }
+                    // 檢查
                     if (teacherInput && dateInput) {
-                        // 檢查 allConfirmedSubstituteRecords 是否已存在該教師該日記錄
-                        const exists = allConfirmedSubstituteRecords.some(r =>
-                            r.absentTeacher === teacherInput &&
+                        const exists = allPendingRecords.some(r =>
+                            (r.absentTeacher === teacherInput || r.substitute === teacherInput) &&
                             (
                                 r.date === dateInput ||
                                 formatDateDisplay(r.date) === formatDateDisplay(dateInput)
@@ -896,8 +932,6 @@
             confirmedTeachers.forEach(teacher => {
                 excludedTeachersSet.add(teacher);
             });
-
-            // 修訂2: 請假教師自動加入排除名單
             excludedTeachersSet.add(absentTeacher);
             updateExcludeCheckboxes();
             renderExcludeTeachers(document.getElementById('sortBySubstValue').checked);
