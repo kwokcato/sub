@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>教師代課系統 V13</title>
+    <title>教師代課系統 V14</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -76,7 +76,7 @@
     </style>
 </head>
 <body>
-    <h1>教師代課系統 V13</h1>
+    <h1>教師代課系統 V14</h1>
     <div class="priority-info">
         <strong>代課教師選擇優先級：</strong><br>
         <OL>
@@ -172,7 +172,6 @@
 
         // --- Reload提示 ---
         window.addEventListener('beforeunload', function (e) {
-            // 若有未下載的代堂記錄，提示
             if ((allConfirmedSubstituteRecords && allConfirmedSubstituteRecords.length > 0) || (pendingUpdates && Object.keys(pendingUpdates).length > 0)) {
                 e.preventDefault();
                 e.returnValue = '即將重新載入頁面，請先下載代堂記錄，以免數據流失。';
@@ -193,7 +192,6 @@
             return date.getDay();
         }
         function formatDateDisplay(dateString) {
-            // yyyy-mm-dd 轉為 dd/mm/yyyy
             if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
                 const [yy, mm, dd] = dateString.split('-');
                 return `${dd}/${mm}/${yy}`;
@@ -202,7 +200,6 @@
         }
         function getDayNameByNum(dayNum) {
             const dayNames = ["日", "一", "二", "三", "四", "五", "六"];
-            // JS Date: 0=日, 1=一, ... 6=六
             return dayNames[dayNum] ? "星期" + dayNames[dayNum] : "";
         }
         function parseCSV(csv) {
@@ -298,14 +295,9 @@
                 window.URL.revokeObjectURL(url);
             }, 100);
         }
-
-        // 分組合併同一節多班的代堂記錄
         function groupSubstituteRecords(records) {
-            // Key: absentTeacher|leaveType|date|weekday|period|substitute|subject|room|change
-            // 合併 class
             const grouped = {};
             records.forEach(r => {
-                // 計算 weekDay
                 let weekDay = "";
                 let dateDisp = r.date;
                 if (/^\d{4}-\d{2}-\d{2}$/.test(r.date)) {
@@ -343,7 +335,6 @@
                 }
                 grouped[key].classList.push(r.class || "");
             });
-            // 轉 array，班級用斜線連接
             return Object.values(grouped).map(obj => ({
                 absentTeacher: obj.absentTeacher,
                 leaveType: obj.leaveType,
@@ -357,7 +348,6 @@
                 change: obj.change
             }));
         }
-
         function downloadExcelFromArr(records, filename) {
             if (!records || records.length === 0) {
                 alert("沒有可匯出的代堂記錄。");
@@ -388,7 +378,6 @@
             XLSX.utils.book_append_sheet(wb, ws, "代堂記錄");
             XLSX.writeFile(wb, filename);
         }
-
         document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('result').innerHTML = '<div class="loading">請上傳 subst.csv 文件並輸入查詢條件</div>';
             setDefaultDate();
@@ -419,7 +408,6 @@
                 };
                 reader.readAsText(file);
             });
-
             document.getElementById('downloadBtn').addEventListener('click', function() {
                 if (
                     (Object.keys(pendingUpdates).length === 0 && substituteRecords.length === 0) &&
@@ -446,7 +434,6 @@
                         }
                         downloadCSV(csvContent, `subst_${datetimeStr}.csv`);
                     }
-                    // 重設
                     pendingUpdates = {};
                     substituteRecords = [];
                     currentSubstitutes = [];
@@ -460,7 +447,6 @@
                     alert('下載時發生錯誤，請查看控制台獲取詳細信息');
                 }
             });
-
             fetch('tt.csv')
                 .then(response => {
                     if (!response.ok) {
@@ -520,7 +506,24 @@
                 });
             document.getElementById('generateBtn').addEventListener('click', function() {
                 try {
-                    isResultDisabled = false; // 新開查詢時解除 disable
+                    isResultDisabled = false;
+                    // --- 檢查該請假教師是否當天已安排代堂 ---
+                    const teacherInput = document.getElementById('teacherInput').value.trim();
+                    const dateInput = document.getElementById('dateInput').value;
+                    if (teacherInput && dateInput) {
+                        // 檢查 allConfirmedSubstituteRecords 是否已存在該教師該日記錄
+                        const exists = allConfirmedSubstituteRecords.some(r =>
+                            r.absentTeacher === teacherInput &&
+                            (
+                                r.date === dateInput ||
+                                formatDateDisplay(r.date) === formatDateDisplay(dateInput)
+                            )
+                        );
+                        if (exists) {
+                            alert("該教師已安排代堂");
+                            return;
+                        }
+                    }
                     generateSubstitutes();
                 } catch (e) {
                     document.getElementById('result').innerHTML = 
@@ -564,7 +567,6 @@
             } else {
                 sortedTeachers.sort();
             }
-            // 修正：正確計算 todayTeacherFree: 全部節數 - 教師該天busy節數 (以 unique period 計)
             let allPeriods = [];
             if (currentDay !== null) {
                 allPeriods = Array.from(new Set(timetableData.filter(item => item.day === currentDay).map(item => item.period)));
@@ -589,7 +591,6 @@
                 let substStr = '';
                 let freeStr = '';
                 if (allPeriods.length > 0) {
-                    // busyPeriods: 用 unique period 計
                     const busyPeriods = new Set(timetableData.filter(item => item.teacher === teacher && item.day === currentDay).map(item => item.period));
                     let freeCount = allPeriods.length - busyPeriods.size;
                     if (freeCount < 0) freeCount = 0;
@@ -704,7 +705,6 @@
                     )
                     .map(teacher => {
                         let afterEmpty = !teacherBusyPeriods[teacher].includes(period+1);
-                        // 正確計算free
                         const busyPeriods = new Set(timetableData.filter(item => item.teacher === teacher && item.day === day).map(item => item.period));
                         let freeCount = allPeriods.length - busyPeriods.size;
                         if (freeCount < 0) freeCount = 0;
@@ -720,7 +720,7 @@
                         if (a.substValue !== b.substValue)
                             return a.substValue - b.substValue;
                         if (a.free !== b.free)
-                            return b.free - a.free; // 多空堂優先
+                            return b.free - a.free;
                         if (b.afterEmpty !== a.afterEmpty)
                             return b.afterEmpty - a.afterEmpty;
                         return a.teacher.localeCompare(b.teacher);
@@ -767,7 +767,6 @@
             }
             renderSubstituteResult(teacherInput, dateInput, leaveType, maxLoad);
         }
-
         function renderSubstituteResult(absentTeacher, dateInput, leaveType, maxLoad) {
             let html = `<h3>代課安排結果</h3>`;
             currentSubstitutes.forEach((sub, idx) => {
@@ -798,15 +797,11 @@
             html += `<div style="margin-top:20px;"><button id="confirmSubstituteBtn" class="confirm-btn">確認本次安排</button></div>`;
             html += `<div id="duplicate-warning-area"></div>`;
             document.getElementById('result').innerHTML = html;
-
-            // 若 disabled 狀態, 加上 class
             if (isResultDisabled) {
                 document.getElementById('result').classList.add('disabled-result');
-                // 移除所有 .selectable-teacher 的點擊事件
                 document.querySelectorAll('.selectable-teacher').forEach(el => {
                     el.replaceWith(el.cloneNode(true));
                 });
-                // 禁用確認按鈕
                 let btn = document.getElementById('confirmSubstituteBtn');
                 if (btn) btn.disabled = true;
             } else {
@@ -823,7 +818,6 @@
                 });
             }
         }
-
         function swapPrimaryCandidate(subIdx, teacher, absentTeacher, dateInput, leaveType, maxLoad) {
             if (isResultDisabled) return;
             let sub = currentSubstitutes[subIdx];
@@ -845,7 +839,6 @@
                 renderSubstituteResult(absentTeacher, dateInput, leaveType, maxLoad);
             }
         }
-
         function confirmSubstituteArrangements(absentTeacher, dateInput, leaveType) {
             let duplicateTeachers = [];
             let primaryTeachers = [];
@@ -903,30 +896,30 @@
             confirmedTeachers.forEach(teacher => {
                 excludedTeachersSet.add(teacher);
             });
+
+            // 修訂2: 請假教師自動加入排除名單
+            excludedTeachersSet.add(absentTeacher);
+            updateExcludeCheckboxes();
             renderExcludeTeachers(document.getElementById('sortBySubstValue').checked);
+
             let html = document.getElementById('result').innerHTML;
             html += `<span class="confirmed">(已確認)</span>`;
             document.getElementById('result').innerHTML = html;
 
-            // --- 修正2: 記錄所有代堂教師安排 ---
             if (Array.isArray(substituteRecords) && substituteRecords.length > 0) {
                 if (!Array.isArray(allConfirmedSubstituteRecords)) allConfirmedSubstituteRecords = [];
                 allConfirmedSubstituteRecords = allConfirmedSubstituteRecords.concat(
                     substituteRecords.map(item => ({...item}))
                 );
             }
-
-            // --- 修正1: 設置結果為Disabled/灰色 ---
             isResultDisabled = true;
             setTimeout(function() {
                 document.getElementById('result').classList.add('disabled-result');
-                // 禁用所有 .selectable-teacher
                 document.querySelectorAll('.selectable-teacher').forEach(el => {
                     el.style.pointerEvents = 'none';
                     el.style.color = '#bcbcbc';
                     el.removeAttribute('tabindex');
                 });
-                // 禁用確認按鈕
                 let btn = document.getElementById('confirmSubstituteBtn');
                 if (btn) btn.disabled = true;
             }, 100);
