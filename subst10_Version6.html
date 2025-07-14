@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>教師代課系統 V11</title>
+    <title>教師代課系統 V12</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -51,7 +51,7 @@
     </style>
 </head>
 <body>
-    <h1>教師代課系統 V11</h1>
+    <h1>教師代課系統 V12</h1>
     <div class="priority-info">
         <strong>代課教師選擇優先級：</strong><br>
         <OL>
@@ -260,6 +260,66 @@
                 window.URL.revokeObjectURL(url);
             }, 100);
         }
+
+        // 分組合併同一節多班的代堂記錄
+        function groupSubstituteRecords(records) {
+            // Key: absentTeacher|leaveType|date|weekday|period|substitute|subject|room|change
+            // 合併 class
+            const grouped = {};
+            records.forEach(r => {
+                // 計算 weekDay
+                let weekDay = "";
+                let dateDisp = r.date;
+                if (/^\d{4}-\d{2}-\d{2}$/.test(r.date)) {
+                    const d = new Date(r.date);
+                    weekDay = getDayNameByNum(d.getDay());
+                    dateDisp = formatDateDisplay(r.date);
+                } else if (r.weekday) {
+                    weekDay = r.weekday;
+                }
+                let periodDisp = (typeof r.period === "number" || (typeof r.period === "string" && r.period !== "")) ? `第${r.period}節` : "";
+                const key = [
+                    r.absentTeacher || "",
+                    r.leaveType || "",
+                    dateDisp,
+                    weekDay,
+                    periodDisp,
+                    r.substitute || "",
+                    r.subject || "",
+                    r.room || "",
+                    r.change || "1"
+                ].join("|||");
+                if (!grouped[key]) {
+                    grouped[key] = {
+                        absentTeacher: r.absentTeacher || "",
+                        leaveType: r.leaveType || "",
+                        date: dateDisp,
+                        weekday: weekDay,
+                        period: periodDisp,
+                        substitute: r.substitute || "",
+                        classList: [],
+                        subject: r.subject || "",
+                        room: r.room || "",
+                        change: r.change || "1"
+                    };
+                }
+                grouped[key].classList.push(r.class || "");
+            });
+            // 轉 array，班級用斜線連接
+            return Object.values(grouped).map(obj => ({
+                absentTeacher: obj.absentTeacher,
+                leaveType: obj.leaveType,
+                date: obj.date,
+                weekday: obj.weekday,
+                period: obj.period,
+                substitute: obj.substitute,
+                class: obj.classList.filter(c => c).join("/"),
+                subject: obj.subject,
+                room: obj.room,
+                change: obj.change
+            }));
+        }
+
         function downloadExcelFromArr(records, filename) {
             // records: array of objects, filename: .xlsx
             if (!records || records.length === 0) {
@@ -271,26 +331,17 @@
                 "請假教師", "請假類別", "日期", "星期", "節數",
                 "代課教師", "班級", "科目", "教室", "代堂數目變化"
             ];
+            // 分組合併同一節多班
+            const groupedRecords = groupSubstituteRecords(records);
             // 轉成 array of arrays
             const data = [headers];
-            records.forEach(r => {
-                // 日期格式
-                let dateDisp = formatDateDisplay(r.date);
-                let weekDay = "";
-                if (/^\d{4}-\d{2}-\d{2}$/.test(r.date)) {
-                    // yyyy-mm-dd
-                    const d = new Date(r.date);
-                    weekDay = getDayNameByNum(d.getDay());
-                } else if (r.weekday) {
-                    weekDay = r.weekday;
-                }
-                let periodDisp = (typeof r.period === "number" || (typeof r.period === "string" && r.period !== "")) ? `第${r.period}節` : "";
+            groupedRecords.forEach(r => {
                 data.push([
                     r.absentTeacher || "",
                     r.leaveType || "",
-                    dateDisp,
-                    weekDay,
-                    periodDisp,
+                    r.date,
+                    r.weekday,
+                    r.period,
                     r.substitute || "",
                     r.class || "",
                     r.subject || "",
@@ -352,7 +403,6 @@
                     if (allConfirmedSubstituteRecords && allConfirmedSubstituteRecords.length > 0) {
                         downloadExcelFromArr(allConfirmedSubstituteRecords, `subst_records_${datetimeStr}.xlsx`);
                     } else if (substituteRecords && substituteRecords.length > 0) {
-                        // 若有未進入allConfirmedSubstituteRecords則暫時也匯出
                         downloadExcelFromArr(substituteRecords, `subst_records_${datetimeStr}.xlsx`);
                     }
 
@@ -815,7 +865,6 @@
             // 把這次安排推進 allConfirmedSubstituteRecords
             if (Array.isArray(substituteRecords) && substituteRecords.length > 0) {
                 if (!Array.isArray(allConfirmedSubstituteRecords)) allConfirmedSubstituteRecords = [];
-                // 深拷貝本次
                 allConfirmedSubstituteRecords = allConfirmedSubstituteRecords.concat(
                     substituteRecords.map(item => ({...item}))
                 );
