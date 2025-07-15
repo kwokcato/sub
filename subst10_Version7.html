@@ -73,6 +73,17 @@
         .disabled-result a {
             pointer-events: none !important;
         }
+        .sort-radio-group {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            margin: 10px 0 10px 0;
+        }
+        .sort-radio-group label {
+            font-weight: normal;
+            margin-right: 0;
+            margin-bottom: 0;
+        }
     </style>
 </head>
 <body>
@@ -140,9 +151,12 @@
                 <input type="text" id="excludeInput" placeholder="輸入教師名稱後按Enter (空格或逗號分隔)" 
                        title="輸入教師名稱後按Enter (空格或逗號分隔)">
             </div>
-            <div class="sort-option">
-                <input type="checkbox" id="sortBySubstValue">
+            <div class="sort-radio-group">
+                <span>排序方式：</span>
+                <input type="radio" id="sortBySubstValue" name="sortTeacher" value="subst" checked>
                 <label for="sortBySubstValue">以代堂數排序（由小至大）</label>
+                <input type="radio" id="sortByFree" name="sortTeacher" value="free">
+                <label for="sortByFree">以空堂數目排序</label>
             </div>
             <div id="excludeTeachers"></div>
         </div>
@@ -421,7 +435,7 @@
                         substData = parseSubstCSV(e.target.result);
                         document.getElementById('result').innerHTML = '<div class="loading">代堂數據已加載，請輸入查詢條件</div>';
                         document.getElementById('downloadBtn').disabled = false;
-                        renderExcludeTeachers(document.getElementById('sortBySubstValue').checked);
+                        renderExcludeTeachers(getSortType());
                     } catch (error) {
                         document.getElementById('result').innerHTML = 
                             `<div class="error">錯誤: 無法解析CSV文件<br>請確保文件格式正確</div>`;
@@ -450,8 +464,9 @@
                             updatedSubstData[teacher] = (updatedSubstData[teacher] || 0) + pendingUpdates[teacher];
                         }
                         let csvContent = "教師,代堂數\r\n";
+                        // 修正：教師名稱不要有雙引號
                         for (const teacher in updatedSubstData) {
-                            csvContent += `"${teacher}",${updatedSubstData[teacher]}\r\n`;
+                            csvContent += `${teacher},${updatedSubstData[teacher]}\r\n`;
                         }
                         downloadCSV(csvContent, `subst_${datetimeStr}.csv`);
                     }
@@ -465,7 +480,7 @@
                     confirmSpans.forEach(span => {
                         span.textContent = '(已確認並下載)';
                     });
-                    renderExcludeTeachers(document.getElementById('sortBySubstValue').checked);
+                    renderExcludeTeachers(getSortType());
                 } catch (error) {
                     alert('下載時發生錯誤，請查看控制台獲取詳細信息');
                 }
@@ -491,10 +506,13 @@
                         option.textContent = teacher;
                         teacherSelect.appendChild(option);
                     });
-                    renderExcludeTeachers(false);
+                    renderExcludeTeachers(getSortType());
+                    // 監控 radio button 變更
                     document.getElementById('sortBySubstValue').addEventListener('change', function() {
-                        const sortByValue = this.checked;
-                        renderExcludeTeachers(sortByValue);
+                        if (this.checked) renderExcludeTeachers('subst');
+                    });
+                    document.getElementById('sortByFree').addEventListener('change', function() {
+                        if (this.checked) renderExcludeTeachers('free');
                     });
                     const teacherInput = document.getElementById('teacherInput');
                     teacherSelect.addEventListener('change', function() {
@@ -560,6 +578,12 @@
             });
         });
 
+        function getSortType() {
+            // 取得 radio 選擇的排序方式
+            if (document.getElementById('sortByFree').checked) return 'free';
+            return 'subst';
+        }
+
         function processExcludeInput() {
             const input = document.getElementById('excludeInput').value.trim().toUpperCase();
             if (!input) return;
@@ -582,22 +606,41 @@
                 cb.checked = excludedTeachersSet.has(cb.value);
             });
         }
-        function renderExcludeTeachers(sortByValue) {
+        function renderExcludeTeachers(sortType) {
             const excludeTeachersDiv = document.getElementById('excludeTeachers');
             excludeTeachersDiv.innerHTML = '';
             let sortedTeachers = [...allTeachers];
-            if (sortByValue) {
+            let allPeriods = [];
+            if (currentDay !== null) {
+                allPeriods = Array.from(new Set(timetableData.filter(item => item.day === currentDay).map(item => item.period)));
+            }
+            // 計算每位老師的空堂
+            let teacherFreeCount = {};
+            sortedTeachers.forEach(teacher => {
+                let free = 0;
+                if (allPeriods.length > 0) {
+                    const busyPeriods = new Set(timetableData.filter(item => item.teacher === teacher && item.day === currentDay).map(item => item.period));
+                    free = allPeriods.length - busyPeriods.size;
+                    if (free < 0) free = 0;
+                }
+                teacherFreeCount[teacher] = free;
+            });
+            if (sortType === 'subst') {
                 sortedTeachers.sort((a, b) => {
                     const aValue = substData[a] || 0;
                     const bValue = substData[b] || 0;
                     return aValue - bValue;
                 });
+            } else if (sortType === 'free') {
+                sortedTeachers.sort((a, b) => {
+                    let af = teacherFreeCount[a] || 0;
+                    let bf = teacherFreeCount[b] || 0;
+                    // 空堂多的排前面, 若相同再按名字
+                    if (bf !== af) return bf - af;
+                    return a.localeCompare(b, 'zh-Hant');
+                });
             } else {
                 sortedTeachers.sort();
-            }
-            let allPeriods = [];
-            if (currentDay !== null) {
-                allPeriods = Array.from(new Set(timetableData.filter(item => item.day === currentDay).map(item => item.period)));
             }
             sortedTeachers.forEach(teacher => {
                 const div = document.createElement('div');
@@ -619,10 +662,7 @@
                 let substStr = '';
                 let freeStr = '';
                 if (allPeriods.length > 0) {
-                    const busyPeriods = new Set(timetableData.filter(item => item.teacher === teacher && item.day === currentDay).map(item => item.period));
-                    let freeCount = allPeriods.length - busyPeriods.size;
-                    if (freeCount < 0) freeCount = 0;
-                    freeStr = `(${freeCount})`;
+                    freeStr = `(${teacherFreeCount[teacher]})`;
                 }
                 if (substData.hasOwnProperty(teacher)) {
                     substStr = `(${substData[teacher]})`;
@@ -659,7 +699,7 @@
             }
             if (excludedTeachersSet.has(teacherInput)) {
                 excludedTeachersSet.delete(teacherInput);
-                renderExcludeTeachers(document.getElementById('sortBySubstValue').checked);
+                renderExcludeTeachers(getSortType());
             }
             const dayOfWeek = getDayOfWeek(dateInput);
             const day = dayOfWeek === 0 ? 7 : dayOfWeek;
@@ -685,7 +725,7 @@
                     `<div class="error">教師 ${teacherInput} 在選擇的日期沒有需要代課的課程。</div>`;
                 return;
             }
-            renderExcludeTeachers(document.getElementById('sortBySubstValue').checked);
+            renderExcludeTeachers(getSortType());
             const availableTeachers = allTeachers.filter(teacher => 
                 !excludedTeachers.includes(teacher)
             );
@@ -724,6 +764,18 @@
             });
             let allPeriods = periods;
             let alreadyPrimary = new Set();
+            // 預先計算空堂數
+            let teacherFreeCount = {};
+            availableTeachers.forEach(teacher => {
+                let free = 0;
+                if (allPeriods.length > 0) {
+                    const busyPeriods = new Set(timetableData.filter(item => item.teacher === teacher && item.day === day).map(item => item.period));
+                    free = allPeriods.length - busyPeriods.size;
+                    if (free < 0) free = 0;
+                }
+                teacherFreeCount[teacher] = free;
+            });
+
             for (const period of absentPeriods) {
                 const lessons = absentLessonsByPeriod[period] || [];
                 let candidatesArr = availableTeachers
@@ -733,9 +785,7 @@
                     )
                     .map(teacher => {
                         let afterEmpty = !teacherBusyPeriods[teacher].includes(period+1);
-                        const busyPeriods = new Set(timetableData.filter(item => item.teacher === teacher && item.day === day).map(item => item.period));
-                        let freeCount = allPeriods.length - busyPeriods.size;
-                        if (freeCount < 0) freeCount = 0;
+                        let freeCount = teacherFreeCount[teacher];
                         return {
                             teacher,
                             substValue: substValues[teacher],
@@ -926,7 +976,7 @@
             });
             excludedTeachersSet.add(absentTeacher);
             updateExcludeCheckboxes();
-            renderExcludeTeachers(document.getElementById('sortBySubstValue').checked);
+            renderExcludeTeachers(getSortType());
 
             let html = document.getElementById('result').innerHTML;
             html += `<span class="confirmed">(已確認)</span>`;
