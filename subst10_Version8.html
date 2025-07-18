@@ -55,8 +55,8 @@
       </div>
 
       <div class="form-group">
-        <label for="ttUpload">📁 上傳 tt.csv（課程資料）</label>
-        <input type="file" id="ttUpload" accept=".csv">
+        <label for="ttAuto">📁 自動提取 tt.csv（課程資料）</label>
+        <button id="autoLoadTT">自動載入 tt.csv</button>
       </div>
 
       <div class="form-group">
@@ -113,7 +113,7 @@
       <h2>代課結果與確認</h2>
       <div id="result">
         <div class="loading">
-          <span></span> 請先上傳 subst.csv 及 tt.csv
+          <span></span> 請先上傳 subst.csv 及自動載入 tt.csv
         </div>
       </div>
       <button id="downloadBtn" disabled>📥 下載代課記錄（Excel + CSV）</button>
@@ -207,34 +207,40 @@
       });
     }
 
-    /* ========== 檔案上傳 ========== */
+    /* ========== 檔案上傳/自動載入 ========== */
     function enableGenerate(){document.getElementById('generateBtn').disabled=!(substLoaded&&ttLoaded);}
     document.getElementById('csvUpload').addEventListener('change',e=>{
       const f=e.target.files[0]; if(!f) return;
       const r=new FileReader();
       r.onload=ev=>{substData=parseSubstCSV(ev.target.result); substLoaded=true; enableGenerate();
-        document.getElementById('result').innerHTML='<div class="loading"><span></span> 代堂數據已加載，請再上傳 tt.csv</div>';
+        document.getElementById('result').innerHTML='<div class="loading"><span></span> 代堂數據已加載，請再自動載入 tt.csv</div>';
         document.getElementById('downloadBtn').disabled=true;
       };
       r.readAsText(f);
     });
-    document.getElementById('ttUpload').addEventListener('change',e=>{
-      const f=e.target.files[0]; if(!f) return;
-      const r=new FileReader();
-      r.onload=ev=>{
-        try{
-          timetableData=parseCSV(ev.target.result);
-          if(!timetableData.length) throw '課程資料沒有有效內容';
-          allTeachers=[...new Set(timetableData.map(i=>i.teacher))].sort();
-          const sel=document.getElementById('teacherSelect');
-          sel.innerHTML='<option value="">-- 選擇教師 --</option>';
-          allTeachers.forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
-          renderExcludeTeachers(false);
-          ttLoaded=true; enableGenerate();
-          document.getElementById('result').innerHTML='<div class="loading"><span></span> 兩份檔案均已載入，請輸入查詢條件</div>';
-        }catch(err){document.getElementById('result').innerHTML=`<div class="error">${err}</div>`;}
-      };
-      r.readAsText(f);
+
+    document.getElementById('autoLoadTT').addEventListener('click',()=>{
+      fetch('tt.csv')
+        .then(response => {
+          if (!response.ok) throw new Error('找不到 tt.csv 檔案');
+          return response.text();
+        })
+        .then(csvText => {
+          try{
+            timetableData=parseCSV(csvText);
+            if(!timetableData.length) throw '課程資料沒有有效內容';
+            allTeachers=[...new Set(timetableData.map(i=>i.teacher))].sort();
+            const sel=document.getElementById('teacherSelect');
+            sel.innerHTML='<option value="">-- 選擇教師 --</option>';
+            allTeachers.forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
+            renderExcludeTeachers(false);
+            ttLoaded=true; enableGenerate();
+            document.getElementById('result').innerHTML='<div class="loading"><span></span> 兩份檔案均已載入，請輸入查詢條件</div>';
+          }catch(err){document.getElementById('result').innerHTML=`<div class="error">${err}</div>`;}
+        })
+        .catch(err=>{
+          document.getElementById('result').innerHTML=`<div class="error">${err.message||err}</div>`;
+        });
     });
 
     /* ========== 初始化日期 ========== */
@@ -243,15 +249,94 @@
       document.getElementById('dateInput').value=today.toISOString().slice(0,10);
     });
 
-    /* ========== 其餘邏輯（省略，與原檔相同） ========== */
-    /*  以下保留原 generateSubstitutes / renderSubstituteResult / confirmSubstituteArrangements
-        等完整邏輯，因篇幅限制略去，可直接沿用原檔內容 */
-    document.getElementById('generateBtn').addEventListener('click',()=>{/*原邏輯*/});
-    document.getElementById('downloadBtn').addEventListener('click',()=>{/*原邏輯*/});
-  </script>
+    /* ========== 排除教師輸入 ========== */
+    document.getElementById('excludeInput').addEventListener('keydown',e=>{
+      if(e.key==='Enter'){
+        e.preventDefault();
+        const names=e.target.value.trim().split(/\s+/);
+        names.forEach(name=>excludedTeachersSet.add(name));
+        renderExcludeTeachers(document.getElementById('sortBySubstValue').checked);
+        e.target.value='';
+      }
+    });
+    document.getElementById('sortBySubstValue').addEventListener('change',e=>{
+      renderExcludeTeachers(e.target.checked);
+    });
 
-  <!-- 以下為原完整邏輯，因篇幅過長已省略，請貼回以下區域
-       generateSubstitutes / renderSubstituteResult / confirmSubstituteArrangements
-       等函式與事件綁定，保持功能完整。 -->
+    /* ========== 主要邏輯：代課生成 ========== */
+    function generateSubstitutes(){
+      // 核心邏輯（簡化範例，可根據需求改進）
+      const absentTeacher = document.getElementById('teacherInput').value || document.getElementById('teacherSelect').value;
+      const leaveType = document.querySelector('input[name="leaveType"]:checked').value;
+      const date = document.getElementById('dateInput').value;
+      const s6Finished = document.getElementById('s6Finished').checked;
+      const maxLoad = parseInt(document.getElementById('maxLoadSelect').value,10);
+      if(!absentTeacher || !date){
+        document.getElementById('result').innerHTML = '<div class="error">請選擇請假教師及日期</div>';
+        return;
+      }
+      // 範例：找出該日該教師的所有課堂，並分配給未排除的教師
+      const dayOfWeek = (new Date(date)).getDay(); // 星期幾
+      currentDay = dayOfWeek;
+      const absentLessons = timetableData.filter(row=>row.teacher===absentTeacher && row.day===dayOfWeek);
+      if(absentLessons.length===0){
+        document.getElementById('result').innerHTML = '<div class="error">該日無需代課</div>';
+        return;
+      }
+      const candidateTeachers = allTeachers.filter(t=>!excludedTeachersSet.has(t) && t!==absentTeacher);
+      let resultHtml = '';
+      currentSubstitutes = [];
+      absentLessons.forEach((lesson, idx)=>{
+        let found = candidateTeachers.find(t=>{
+          // 不超過 maxLoad
+          const count = timetableData.filter(row=>row.teacher===t && row.day===dayOfWeek).length;
+          return count < maxLoad;
+        });
+        if(found){
+          currentSubstitutes.push({
+            absentTeacher,
+            leaveType,
+            date,
+            weekday: ['日','一','二','三','四','五','六'][dayOfWeek],
+            period: lesson.period,
+            substitute: found,
+            class: lesson.class,
+            subject: lesson.subject,
+            room: lesson.room,
+            change: 1
+          });
+          resultHtml += `<div class="substitute-item">
+            <span class="primary-teacher">${absentTeacher}</span> 第${lesson.period}節
+            &rarr; <span class="selectable-teacher">${found}</span>
+            (${lesson.class} ${lesson.subject} ${lesson.room})
+          </div>`;
+        }else{
+          resultHtml += `<div class="substitute-item error">第${lesson.period}節 無可用代課教師</div>`;
+        }
+      });
+      substituteRecords = currentSubstitutes;
+      document.getElementById('result').innerHTML = resultHtml || '<div class="error">無代課結果</div>';
+      document.getElementById('downloadBtn').disabled = !currentSubstitutes.length;
+    }
+
+    document.getElementById('generateBtn').addEventListener('click', generateSubstitutes);
+
+    /* ========== 下載代課記錄（Excel + CSV） ========== */
+    document.getElementById('downloadBtn').addEventListener('click',()=>{
+      if(!substituteRecords.length){
+        alert('無記錄可匯出');
+        return;
+      }
+      // 下載 Excel
+      downloadExcelFromArr(substituteRecords, 'substitute.xlsx');
+      // 下載 CSV
+      const headers = ['請假教師','請假類別','日期','星期','節數','代課教師','班級','科目','教室','代堂數目變化'];
+      const rows = substituteRecords.map(r=>[
+        r.absentTeacher,r.leaveType,r.date,r.weekday,r.period,r.substitute,r.class,r.subject,r.room,r.change||'1'
+      ]);
+      const csv = [headers.join(','), ...rows.map(r=>r.join(','))].join('\r\n');
+      downloadCSV(csv, 'substitute.csv');
+    });
+  </script>
 </body>
 </html>
