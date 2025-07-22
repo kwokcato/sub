@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>tt.csv Viewer</title>
+    <style>
+        body{font-family:Arial,Helvetica,sans-serif;margin:2rem;background:#f5f5f5;}
+        h1{margin-bottom:1rem}
+        table{border-collapse:collapse;width:100%;background:#fff}
+        th,td{border:1px solid #ccc;padding:.5rem;text-align:left}
+        th{background:#eee}
+    </style>
+</head>
+<body>
+    <h1>tt.csv 內容</h1>
+    <div id="csv-container">載入中…</div>
+
+    <script>
+    // 把 Google Drive 分享連結轉成直接下載的格式
+    const fileId = '1f50DbgOa6iAiIu9iq0RTu5tplG_I6snV';
+    const csvUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+
+    fetch(csvUrl)
+        .then(res => {
+            if (!res.ok) throw new Error('無法下載檔案，請確認分享設定為「知道連結的任何人皆可查看」');
+            return res.text();
+        })
+        .then(csv => {
+            // 簡易 CSV 轉表格（不保證處理全部邊界情況）
+            const rows = csv.trim().split(/\r?\n/).map(r => r.split(','));
+            let html = '<table><thead><tr>';
+            rows[0].forEach(cell => html += `<th>${escapeHtml(cell)}</th>`);
+            html += '</tr></thead><tbody>';
+            for (let i = 1; i < rows.length; i++) {
+                html += '<tr>';
+                rows[i].forEach(cell => html += `<td>${escapeHtml(cell)}</td>`);
+                html += '</tr>';
+            }
+            html += '</tbody></table>';
+            document.getElementById('csv-container').innerHTML = html;
+        })
+        .catch(err => {
+            document.getElementById('csv-container').textContent = '錯誤：' + err.message;
+        });
+
+    function escapeHtml(str){
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+    </script>
+</body>
+</html>
