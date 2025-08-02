@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>教師代課系統 V15</title>
+    <title>教師代課系統 V16</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -453,24 +453,43 @@
                 }
                 const datetimeStr = getCurrentDateTimeString();
                 try {
+                    // 先創建一個副本來計算更新後的代課數
+                    const updatedSubstData = {...substData};
+                    
+                    // 更新副本中的代課數
+                    for (const teacher in pendingUpdates) {
+                        if (updatedSubstData[teacher] === undefined) {
+                            updatedSubstData[teacher] = 0;
+                        }
+                        updatedSubstData[teacher] += pendingUpdates[teacher];
+                    }
+
+                    // 下載 Excel 文件
                     if (allConfirmedSubstituteRecords && allConfirmedSubstituteRecords.length > 0) {
                         downloadExcelFromArr(allConfirmedSubstituteRecords, `subst_records_${datetimeStr}.xlsx`);
                     } else if (substituteRecords && substituteRecords.length > 0) {
                         downloadExcelFromArr(substituteRecords, `subst_records_${datetimeStr}.xlsx`);
                     }
+
+                    // 下載 CSV 文件
                     if (Object.keys(pendingUpdates).length > 0 || substituteRecords.length > 0) {
-                        const updatedSubstData = {...substData};
-                        for (const teacher in pendingUpdates) {
-                            updatedSubstData[teacher] = (updatedSubstData[teacher] || 0) + pendingUpdates[teacher];
-                        }
                         let csvContent = "教師,代堂數\r\n";
-                        // 修正：教師名稱不要有雙引號
+                        // 使用更新後的副本數據
                         for (const teacher in updatedSubstData) {
                             csvContent += `${teacher},${updatedSubstData[teacher]}\r\n`;
                         }
                         downloadCSV(csvContent, `subst_${datetimeStr}.csv`);
                     }
-                    // 修訂: 清空待更新的代課記錄及排除教師名單
+
+                    // 更新實際的 substData
+                    for (const teacher in pendingUpdates) {
+                        if (substData[teacher] === undefined) {
+                            substData[teacher] = 0;
+                        }
+                        substData[teacher] += pendingUpdates[teacher];
+                    }
+
+                    // 清空待更新的代課記錄及排除教師名單
                     pendingUpdates = {};
                     substituteRecords = [];
                     allConfirmedSubstituteRecords = [];
@@ -483,6 +502,7 @@
                     renderExcludeTeachers(getSortType());
                 } catch (error) {
                     alert('下載時發生錯誤，請查看控制台獲取詳細信息');
+                    console.error(error);
                 }
             });
             fetch('tt.csv')
@@ -827,38 +847,6 @@
                     }
                     candidatesList = candidatesList.slice(0, 10);
                 }
-
-                // 修訂1：如沒有候選教師，可將所有在當日在該節的空堂教師加入為候選教師。
-                if (primary && candidatesList.length === 0) {
-                    // 找出所有在該節空堂的教師（未被排除、未被選為primary）
-                    let blankPeriodTeachers = availableTeachers.filter(teacher => 
-                        teacher !== primary.teacher &&
-                        !teacherBusyPeriods[teacher].includes(period) &&
-                        teacherOriginalLoad[teacher] < maxLoad
-                    );
-                    // 原本已經排除的不用再處理
-                    // blankPeriodTeachers可能與primary重覆，已排除
-                    blankPeriodTeachers = blankPeriodTeachers.filter(t => t !== primary.teacher);
-                    // 生成候選教師物件
-                    let blankCandidates = blankPeriodTeachers.map(teacher => {
-                        let afterEmpty = !teacherBusyPeriods[teacher].includes(period+1);
-                        let freeCount = teacherFreeCount[teacher];
-                        return {
-                            teacher,
-                            substValue: substValues[teacher],
-                            todayLoad: teacherOriginalLoad[teacher],
-                            afterEmpty: afterEmpty ? 1 : 0,
-                            free: freeCount
-                        };
-                    });
-                    // 隨機排序，最多10名
-                    for (let j = blankCandidates.length - 1; j > 0; j--) {
-                        let k = Math.floor(Math.random() * (j + 1));
-                        [blankCandidates[j], blankCandidates[k]] = [blankCandidates[k], blankCandidates[j]];
-                    }
-                    candidatesList = blankCandidates.slice(0, 10);
-                }
-
                 if (!primary) {
                     currentSubstitutes.push({
                         period,
@@ -998,10 +986,6 @@
                     });
                 });
             });
-            for (const teacher in pendingUpdates) {
-                if (substData[teacher] === undefined) substData[teacher] = 0;
-                substData[teacher] += pendingUpdates[teacher];
-            }
             showPendingUpdates();
             confirmedTeachers.forEach(teacher => {
                 excludedTeachersSet.add(teacher);
