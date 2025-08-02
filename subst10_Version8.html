@@ -413,6 +413,40 @@
             XLSX.utils.book_append_sheet(wb, ws, "代堂記錄");
             XLSX.writeFile(wb, filename);
         }
+
+        function calculateSubstUpdates() {
+            // 重新計算所有代課記錄的代課數變化
+            const updates = {};
+            
+            // 處理所有已確認的代課記錄
+            if (Array.isArray(allConfirmedSubstituteRecords)) {
+                allConfirmedSubstituteRecords.forEach(record => {
+                    // 代課教師 +1
+                    if (!updates[record.substitute]) updates[record.substitute] = 0;
+                    updates[record.substitute] += 1;
+                    
+                    // 請假教師 -1
+                    if (!updates[record.absentTeacher]) updates[record.absentTeacher] = 0;
+                    updates[record.absentTeacher] -= 1;
+                });
+            }
+            
+            // 處理當前未確認的代課記錄
+            if (Array.isArray(substituteRecords)) {
+                substituteRecords.forEach(record => {
+                    // 代課教師 +1
+                    if (!updates[record.substitute]) updates[record.substitute] = 0;
+                    updates[record.substitute] += 1;
+                    
+                    // 請假教師 -1
+                    if (!updates[record.absentTeacher]) updates[record.absentTeacher] = 0;
+                    updates[record.absentTeacher] -= 1;
+                });
+            }
+            
+            return updates;
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('result').innerHTML = '<div class="loading">請上傳 subst.csv 文件並輸入查詢條件</div>';
             setDefaultDate();
@@ -453,17 +487,20 @@
                 }
                 const datetimeStr = getCurrentDateTimeString();
                 try {
-                    // 先創建一個副本來計算更新後的代課數
+                    // 重新計算所有代課記錄的代課數變化
+                    const allUpdates = calculateSubstUpdates();
+                    
+                    // 創建更新後的代課數據
                     const updatedSubstData = {...substData};
                     
-                    // 更新副本中的代課數
-                    for (const teacher in pendingUpdates) {
+                    // 應用所有更新
+                    for (const teacher in allUpdates) {
                         if (updatedSubstData[teacher] === undefined) {
                             updatedSubstData[teacher] = 0;
                         }
-                        updatedSubstData[teacher] += pendingUpdates[teacher];
+                        updatedSubstData[teacher] += allUpdates[teacher];
                     }
-
+                    
                     // 下載 Excel 文件
                     if (allConfirmedSubstituteRecords && allConfirmedSubstituteRecords.length > 0) {
                         downloadExcelFromArr(allConfirmedSubstituteRecords, `subst_records_${datetimeStr}.xlsx`);
@@ -472,22 +509,15 @@
                     }
 
                     // 下載 CSV 文件
-                    if (Object.keys(pendingUpdates).length > 0 || substituteRecords.length > 0) {
-                        let csvContent = "教師,代堂數\r\n";
-                        // 使用更新後的副本數據
-                        for (const teacher in updatedSubstData) {
-                            csvContent += `${teacher},${updatedSubstData[teacher]}\r\n`;
-                        }
-                        downloadCSV(csvContent, `subst_${datetimeStr}.csv`);
+                    let csvContent = "教師,代堂數\r\n";
+                    // 使用更新後的數據
+                    for (const teacher in updatedSubstData) {
+                        csvContent += `${teacher},${updatedSubstData[teacher]}\r\n`;
                     }
+                    downloadCSV(csvContent, `subst_${datetimeStr}.csv`);
 
                     // 更新實際的 substData
-                    for (const teacher in pendingUpdates) {
-                        if (substData[teacher] === undefined) {
-                            substData[teacher] = 0;
-                        }
-                        substData[teacher] += pendingUpdates[teacher];
-                    }
+                    substData = {...updatedSubstData};
 
                     // 清空待更新的代課記錄及排除教師名單
                     pendingUpdates = {};
