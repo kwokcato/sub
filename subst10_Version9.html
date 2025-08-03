@@ -636,7 +636,7 @@
             let sortedTeachers = [...allTeachers];
             let allPeriods = [];
             if (currentDay !== null) {
-                allPeriods = Array.from(new Set(timetableData.filter(item => item.day === currentDay).map(item => item.period));
+                allPeriods = Array.from(new Set(timetableData.filter(item => item.day === currentDay).map(item => item.period)));
             }
             // 計算每位老師的空堂
             let teacherFreeCount = {};
