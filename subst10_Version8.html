@@ -453,24 +453,41 @@
                 }
                 const datetimeStr = getCurrentDateTimeString();
                 try {
+                    // 先下載 Excel 記錄
                     if (allConfirmedSubstituteRecords && allConfirmedSubstituteRecords.length > 0) {
                         downloadExcelFromArr(allConfirmedSubstituteRecords, `subst_records_${datetimeStr}.xlsx`);
                     } else if (substituteRecords && substituteRecords.length > 0) {
                         downloadExcelFromArr(substituteRecords, `subst_records_${datetimeStr}.xlsx`);
                     }
-                    if (Object.keys(pendingUpdates).length > 0) {
-                        const updatedSubstData = {...substData};
+                    
+                    // 然後下載更新後的 subst.csv
+                    if (Object.keys(pendingUpdates).length > 0 || substituteRecords.length > 0) {
+                        // 創建一個新的對象來保存最終的 subst 數據
+                        const finalSubstData = {};
+                        
+                        // 首先複製原始的 substData
+                        for (const teacher in substData) {
+                            finalSubstData[teacher] = substData[teacher];
+                        }
+                        
+                        // 然後應用所有 pendingUpdates
                         for (const teacher in pendingUpdates) {
-                            updatedSubstData[teacher] = (updatedSubstData[teacher] || 0) + pendingUpdates[teacher];
+                            if (!finalSubstData.hasOwnProperty(teacher)) {
+                                finalSubstData[teacher] = 0;
+                            }
+                            finalSubstData[teacher] += pendingUpdates[teacher];
                         }
+                        
+                        // 生成 CSV 內容
                         let csvContent = "教師,代堂數\r\n";
-                        // 修正：教師名稱不要有雙引號
-                        for (const teacher in updatedSubstData) {
-                            csvContent += `${teacher},${updatedSubstData[teacher]}\r\n`;
+                        for (const teacher in finalSubstData) {
+                            csvContent += `${teacher},${finalSubstData[teacher]}\r\n`;
                         }
+                        
                         downloadCSV(csvContent, `subst_${datetimeStr}.csv`);
                     }
-                    // 修訂: 清空待更新的代課記錄及排除教師名單
+                    
+                    // 清空待更新的代課記錄及排除教師名單
                     pendingUpdates = {};
                     substituteRecords = [];
                     allConfirmedSubstituteRecords = [];
@@ -483,6 +500,7 @@
                     renderExcludeTeachers(getSortType());
                 } catch (error) {
                     alert('下載時發生錯誤，請查看控制台獲取詳細信息');
+                    console.error(error);
                 }
             });
             fetch('tt.csv')
@@ -917,15 +935,6 @@
                 renderSubstituteResult(absentTeacher, dateInput, leaveType, maxLoad);
             }
         }
-        
-        /**
-         * @description 確認代課安排，此函數已根據要求進行修訂
-         * 1. 正確計算並累加代課教師和請假教師的代堂數變化到全局變量 pendingUpdates。
-         * 2. 原始的 substData 不會在此被修改，只在最終下載時才合併計算。
-         * @param {string} absentTeacher - 請假教師姓名
-         * @param {string} dateInput - 日期
-         * @param {string} leaveType - 請假類別
-         */
         function confirmSubstituteArrangements(absentTeacher, dateInput, leaveType) {
             let duplicateTeachers = [];
             let primaryTeachers = [];
@@ -946,21 +955,22 @@
                 warningArea.scrollIntoView({ behavior: "smooth", block: "center" });
                 return;
             }
-
-            // `substituteRecords` 用於存放本次安排的記錄，先清空是正確的。
+            const maxLoad = parseInt(document.getElementById('maxLoadSelect').value);
+            const s6Finished = document.getElementById('s6Finished').checked;
+            pendingUpdates = {};
             substituteRecords = [];
-            let confirmedSubstituteTeachers = new Set();
-            let totalSubstitutedPeriods = 0;
-
-            // 遍歷當前安排，生成記錄，並統計總代課堂數和涉及的代課教師。
+            let confirmedTeachers = new Set();
             currentSubstitutes.forEach(sub => {
                 if (!sub.primary) return;
-
-                totalSubstitutedPeriods++;
+                const period = sub.period;
+                const lessons = sub.lessons;
                 const primary = sub.primary.teacher;
-                confirmedSubstituteTeachers.add(primary);
-
-                sub.lessons.forEach(lesson => {
+                confirmedTeachers.add(primary);
+                if (!pendingUpdates[primary]) pendingUpdates[primary] = 0;
+                pendingUpdates[primary] += 1;
+                if (!pendingUpdates[absentTeacher]) pendingUpdates[absentTeacher] = 0;
+                pendingUpdates[absentTeacher] -= 1;
+                lessons.forEach(lesson => {
                     substituteRecords.push({
                         absentTeacher,
                         leaveType,
@@ -974,50 +984,24 @@
                     });
                 });
             });
-
-            // 根據生成的記錄，更新全局的 `pendingUpdates` 對象，用以累計所有變更。
-            // 為代課教師增加代堂數。
-            confirmedSubstituteTeachers.forEach(teacher => {
-                const periodsForThisTeacher = substituteRecords.filter(r => r.substitute === teacher).length;
-                if (periodsForThisTeacher > 0) {
-                    if (!pendingUpdates[teacher]) pendingUpdates[teacher] = 0;
-                    pendingUpdates[teacher] += periodsForThisTeacher;
-                }
-            });
-
-            // 為請假教師減去被代的總堂數。
-            if (totalSubstitutedPeriods > 0) {
-                if (!pendingUpdates[absentTeacher]) pendingUpdates[absentTeacher] = 0;
-                pendingUpdates[absentTeacher] -= totalSubstitutedPeriods;
-            }
-            
-            // 已移除此處修改全局 substData 的錯誤邏輯。
-            // 變更現在被正確地累計在 pendingUpdates 中。
-
-            showPendingUpdates(); // 顯示待更新列表（包括本次的安排）
-
-            // 將已安排的教師（請假和代課）加入排除名單，以避免在下一次安排中重複。
-            confirmedSubstituteTeachers.forEach(teacher => {
+            showPendingUpdates();
+            confirmedTeachers.forEach(teacher => {
                 excludedTeachersSet.add(teacher);
             });
             excludedTeachersSet.add(absentTeacher);
             updateExcludeCheckboxes();
             renderExcludeTeachers(getSortType());
 
-            // 更新界面，顯示「已確認」狀態。
             let html = document.getElementById('result').innerHTML;
             html += `<span class="confirmed">(已確認)</span>`;
             document.getElementById('result').innerHTML = html;
 
-            // 將本次安排的記錄添加到總記錄中，以供最終匯出 Excel。
             if (Array.isArray(substituteRecords) && substituteRecords.length > 0) {
                 if (!Array.isArray(allConfirmedSubstituteRecords)) allConfirmedSubstituteRecords = [];
                 allConfirmedSubstituteRecords = allConfirmedSubstituteRecords.concat(
                     substituteRecords.map(item => ({...item}))
                 );
             }
-
-            // 禁用已確認的安排區域，防止重複操作。
             isResultDisabled = true;
             setTimeout(function() {
                 document.getElementById('result').classList.add('disabled-result');
