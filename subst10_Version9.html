@@ -84,6 +84,10 @@
             margin-right: 0;
             margin-bottom: 0;
         }
+        .emergency-teacher {
+            color: #e74c3c;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -91,11 +95,13 @@
     <div class="priority-info">
         <strong>代課教師選擇優先級：</strong><br>
         <OL>
-        <LI>代堂數值最小的教師（負數最大）優先選擇</LI>
-        <LI>當天較多空堂（即較少課堂）</LI>
-        <LI>代堂後為空堂（可選）</LI>
-        <LI>未達到當天堂數上限</LI>
         <LI>未被列入排除名單</LI>
+        <LI>未達到當天堂數上限</LI>
+        <LI>未擔任過其他節數首選的教師</LI>
+        <LI>代堂數值最小的教師</LI>
+        <LI>當天較多空堂</LI>
+        <LI>隨機打亂候選人列表</LI>
+        <LI>如找不到合適教師，以紅色顯示緊急代課教師</LI>
         </OL>
     </div>
     <div id="pending-updates" class="pending-updates" style="display: none;">
@@ -809,30 +815,29 @@
                         teacherOriginalLoad[teacher] < maxLoad
                     )
                     .map(teacher => {
-                        let afterEmpty = !teacherBusyPeriods[teacher].includes(period+1);
                         let freeCount = teacherFreeCount[teacher];
                         return {
                             teacher,
                             substValue: substValues[teacher],
                             todayLoad: teacherOriginalLoad[teacher],
-                            afterEmpty: afterEmpty ? 1 : 0,
                             free: freeCount
                         };
                     })
                     .sort((a, b) => {
-                        // 1. 代堂數值最小的教師（負數最大）優先選擇
+                        // 1. 未擔任過其他節數首選的教師優先
+                        const aIsNew = !alreadyPrimary.has(a.teacher) ? 1 : 0;
+                        const bIsNew = !alreadyPrimary.has(b.teacher) ? 1 : 0;
+                        if (bIsNew !== aIsNew) return bIsNew - aIsNew;
+                        
+                        // 2. 代堂數值最小的教師（負數最大）優先選擇
                         if (a.substValue !== b.substValue)
                             return a.substValue - b.substValue;
-                        // 2. 當天較多空堂（即較少課堂）
+                            
+                        // 3. 當天較多空堂（即較少課堂）
                         if (a.free !== b.free)
                             return b.free - a.free;
-                        // 3. 代堂後為空堂（可選）
-                        if (b.afterEmpty !== a.afterEmpty)
-                            return b.afterEmpty - a.afterEmpty;
-                        // 4. 未達到當天堂數上限
-                        if (a.todayLoad !== b.todayLoad)
-                            return a.todayLoad - b.todayLoad;
-                        // 5. 按姓名排序
+                            
+                        // 4. 按姓名排序
                         return a.teacher.localeCompare(b.teacher);
                     });
                 
@@ -853,6 +858,22 @@
                     primary = candidatesArr[0];
                     alreadyPrimary.add(primary.teacher);
                     candidatesList = candidatesArr.slice(1);
+                }
+                
+                // 如果沒有符合條件的教師，選擇一位當節空堂的教師（緊急代課）
+                if (!primary) {
+                    const emergencyTeachers = availableTeachers.filter(teacher => 
+                        !teacherBusyPeriods[teacher].includes(period)
+                    );
+                    if (emergencyTeachers.length > 0) {
+                        primary = {
+                            teacher: emergencyTeachers[0],
+                            substValue: substValues[emergencyTeachers[0]] || 0,
+                            todayLoad: teacherOriginalLoad[emergencyTeachers[0]] || 0,
+                            free: teacherFreeCount[emergencyTeachers[0]] || 0,
+                            isEmergency: true
+                        };
+                    }
                 }
                 
                 // 隨機打亂候選人列表並限制數量
@@ -885,7 +906,13 @@
                 if (!sub.primary) {
                     html += `<div class="error">無可用代課教師</div>`;
                 } else {
-                    html += `<div>首選教師：<span class="primary-teacher">${sub.primary.teacher} (空堂:${sub.primary.free})(代堂數:${sub.primary.substValue})</span></div>`;
+                    const teacherClass = sub.primary.isEmergency ? 'emergency-teacher' : 'primary-teacher';
+                    html += `<div>首選教師：<span class="${teacherClass}">${sub.primary.teacher} (空堂:${sub.primary.free})(代堂數:${sub.primary.substValue})</span>`;
+                    if (sub.primary.isEmergency) {
+                        html += ` <span class="error">(緊急代課)</span>`;
+                    }
+                    html += `</div>`;
+                    
                     if (sub.candidates.length > 0) {
                         html += `<div>候選教師：`;
                         sub.candidates.forEach(candidate => {
