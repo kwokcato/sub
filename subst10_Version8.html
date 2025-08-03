@@ -44,7 +44,7 @@
         .leave-type label { display: inline-block; margin-right: 15px; min-width: auto; }
         .priority-toggle { color: #3498db; text-decoration: underline; cursor: pointer; margin-bottom: 10px; display: inline-block; }
         .selectable-teacher { cursor: pointer; text-decoration: underline; color: #3498db; margin-left: 10px; }
-        .Selectable-teacher:hover { color: #2980b9; background-color: #f0f8ff; }
+        .selectable-teacher:hover { color: #2980b9; background-color: #f0f8ff; }
         .primary-teacher { color: #2ecc71; font-weight: bold; }
         .duplicate-warning { color: #e67e22; font-weight: bold; margin-left: 10px; }
         .date-input-container { display: flex; align-items: center; }
@@ -213,32 +213,59 @@
             return dayNames[dayNum] ? "星期" + dayNames[dayNum] : "";
         }
         function parseCSV(csv) {
-            const lines = csv.split(/\r?\n/);
+            const lines = csv.split(/\r?\n/).filter(line => line.trim() !== '');
             const result = [];
-            let startLine = 0;
-            if (lines.length > 0 && /^[^0-9]/.test(lines[0])) {
-                startLine = 1;
+            
+            if (lines.length === 0) {
+                throw new Error('CSV文件為空或沒有有效數據');
             }
+            
+            // 檢查是否有標題行
+            const hasHeader = /^[^0-9]/.test(lines[0]);
+            const startLine = hasHeader ? 1 : 0;
+            
             for (let i = startLine; i < lines.length; i++) {
                 const line = lines[i].trim();
-                if (line) {
-                    const fields = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || [];
-                    const cleanedFields = fields.map(field => 
-                        field.replace(/^"(.*)"$/, '$1').trim()
-                    );
-                    if (cleanedFields.length >= 7) {
-                        result.push({
-                            year: cleanedFields[0],
-                            day: parseInt(cleanedFields[1]) || 0,
-                            period: parseInt(cleanedFields[2]) || 0,
-                            teacher: cleanedFields[3],
-                            class: cleanedFields[4],
-                            subject: cleanedFields[5],
-                            room: cleanedFields[6]
-                        });
+                if (!line) continue;
+                
+                try {
+                    // 更健壯的CSV解析，處理包含逗號的欄位
+                    const fields = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || [];
+                    
+                    const cleanedFields = fields.map(field => {
+                        // 移除前後空格和可能的引號
+                        field = field.trim();
+                        if (field.startsWith('"') && field.endsWith('"')) {
+                            field = field.slice(1, -1);
+                        }
+                        return field.trim();
+                    });
+                    
+                    if (cleanedFields.length < 7) {
+                        console.warn(`忽略不完整的行 (第 ${i+1} 行): ${line}`);
+                        continue;
                     }
+                    
+                    result.push({
+                        year: cleanedFields[0] || '',
+                        day: parseInt(cleanedFields[1]) || 0,
+                        period: parseInt(cleanedFields[2]) || 0,
+                        teacher: cleanedFields[3] || '',
+                        class: cleanedFields[4] || '',
+                        subject: cleanedFields[5] || '',
+                        room: cleanedFields[6] || ''
+                    });
+                    
+                } catch (e) {
+                    console.warn(`解析CSV行時發生錯誤 (第 ${i+1} 行): ${line}`, e);
+                    continue;
                 }
             }
+            
+            if (result.length === 0) {
+                throw new Error('CSV文件沒有解析出任何有效數據');
+            }
+            
             return result;
         }
         function parseSubstCSV(csv) {
@@ -453,41 +480,22 @@
                 }
                 const datetimeStr = getCurrentDateTimeString();
                 try {
-                    // 先處理代課記錄Excel
                     if (allConfirmedSubstituteRecords && allConfirmedSubstituteRecords.length > 0) {
                         downloadExcelFromArr(allConfirmedSubstituteRecords, `subst_records_${datetimeStr}.xlsx`);
                     } else if (substituteRecords && substituteRecords.length > 0) {
                         downloadExcelFromArr(substituteRecords, `subst_records_${datetimeStr}.xlsx`);
                     }
-                    
-                    // 處理subst.csv更新
-                    if (Object.keys(pendingUpdates).length > 0) {
-                        // 創建一個新的物件來保存最終的代堂數目
-                        const updatedSubstData = {};
-                        
-                        // 首先複製原始數據
-                        for (const teacher in substData) {
-                            updatedSubstData[teacher] = substData[teacher];
-                        }
-                        
-                        // 然後應用所有待更新的變更
+                    if (Object.keys(pendingUpdates).length > 0 || substituteRecords.length > 0) {
+                        const updatedSubstData = {...substData};
                         for (const teacher in pendingUpdates) {
-                            if (updatedSubstData[teacher] === undefined) {
-                                updatedSubstData[teacher] = 0;
-                            }
-                            updatedSubstData[teacher] += pendingUpdates[teacher];
+                            updatedSubstData[teacher] = (updatedSubstData[teacher] || 0) + pendingUpdates[teacher];
                         }
-                        
-                        // 生成CSV內容
                         let csvContent = "教師,代堂數\r\n";
                         for (const teacher in updatedSubstData) {
                             csvContent += `${teacher},${updatedSubstData[teacher]}\r\n`;
                         }
-                        
                         downloadCSV(csvContent, `subst_${datetimeStr}.csv`);
                     }
-                    
-                    // 清空所有待處理的數據
                     pendingUpdates = {};
                     substituteRecords = [];
                     allConfirmedSubstituteRecords = [];
@@ -500,69 +508,102 @@
                     renderExcludeTeachers(getSortType());
                 } catch (error) {
                     alert('下載時發生錯誤，請查看控制台獲取詳細信息');
-                    console.error(error);
                 }
             });
+            
+            // 改進的 tt.csv 讀取部分
             fetch('tt.csv')
                 .then(response => {
                     if (!response.ok) {
-                        throw new Error('課程數據讀取失敗: ' + response.status);
+                        throw new Error(`無法讀取課程數據文件(tt.csv): HTTP ${response.status}`);
                     }
                     return response.text();
                 })
                 .then(csvData => {
-                    timetableData = parseCSV(csvData);
-                    if (timetableData.length === 0) {
-                        throw new Error('課程數據文件沒有有效數據');
-                    }
-                    allTeachers = [...new Set(timetableData.map(item => item.teacher))].sort();
-                    const teacherSelect = document.getElementById('teacherSelect');
-                    teacherSelect.innerHTML = '<option value="">-- 選擇教師 --</option>';
-                    allTeachers.forEach(teacher => {
-                        const option = document.createElement('option');
-                        option.value = teacher;
-                        option.textContent = teacher;
-                        teacherSelect.appendChild(option);
-                    });
-                    renderExcludeTeachers(getSortType());
-                    // 監控 radio button 變更
-                    document.getElementById('sortBySubstValue').addEventListener('change', function() {
-                        if (this.checked) renderExcludeTeachers('subst');
-                    });
-                    document.getElementById('sortByFree').addEventListener('change', function() {
-                        if (this.checked) renderExcludeTeachers('free');
-                    });
-                    const teacherInput = document.getElementById('teacherInput');
-                    teacherSelect.addEventListener('change', function() {
-                        teacherInput.value = this.value;
-                    });
-                    teacherInput.addEventListener('input', function() {
-                        this.value = this.value.toUpperCase();
-                        const inputValue = this.value.toLowerCase();
-                        const options = teacherSelect.options;
-                        for (let i = 0; i < options.length; i++) {
-                            if (options[i].text.toLowerCase().includes(inputValue)) {
-                                teacherSelect.selectedIndex = i;
-                                break;
+                    try {
+                        timetableData = parseCSV(csvData);
+                        
+                        // 驗證數據是否有效
+                        if (timetableData.length === 0) {
+                            throw new Error('課程數據文件沒有有效數據或格式不正確');
+                        }
+                        
+                        // 檢查必要的欄位是否存在
+                        const sampleItem = timetableData[0];
+                        const requiredFields = ['year', 'day', 'period', 'teacher', 'class', 'subject', 'room'];
+                        const missingFields = requiredFields.filter(field => !(field in sampleItem));
+                        
+                        if (missingFields.length > 0) {
+                            throw new Error(`CSV文件缺少必要欄位: ${missingFields.join(', ')}`);
+                        }
+                        
+                        // 獲取所有教師名單並排序
+                        allTeachers = [...new Set(timetableData.map(item => item.teacher))]
+                            .filter(teacher => teacher && teacher.trim() !== '')
+                            .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+                        
+                        // 更新教師下拉選單
+                        const teacherSelect = document.getElementById('teacherSelect');
+                        teacherSelect.innerHTML = '<option value="">-- 選擇教師 --</option>';
+                        allTeachers.forEach(teacher => {
+                            const option = document.createElement('option');
+                            option.value = teacher;
+                            option.textContent = teacher;
+                            teacherSelect.appendChild(option);
+                        });
+                        
+                        renderExcludeTeachers(getSortType());
+                        
+                        // 監控 radio button 變更
+                        document.getElementById('sortBySubstValue').addEventListener('change', function() {
+                            if (this.checked) renderExcludeTeachers('subst');
+                        });
+                        
+                        document.getElementById('sortByFree').addEventListener('change', function() {
+                            if (this.checked) renderExcludeTeachers('free');
+                        });
+                        
+                        const teacherInput = document.getElementById('teacherInput');
+                        teacherSelect.addEventListener('change', function() {
+                            teacherInput.value = this.value;
+                        });
+                        teacherInput.addEventListener('input', function() {
+                            this.value = this.value.toUpperCase();
+                            const inputValue = this.value.toLowerCase();
+                            const options = teacherSelect.options;
+                            for (let i = 0; i < options.length; i++) {
+                                if (options[i].text.toLowerCase().includes(inputValue)) {
+                                    teacherSelect.selectedIndex = i;
+                                    break;
+                                }
                             }
-                        }
-                    });
-                    teacherInput.addEventListener('keypress', function(e) {
-                        if (e.key === 'Enter') {
-                            document.getElementById('generateBtn').click();
-                        }
-                    });
-                    const excludeInput = document.getElementById('excludeInput');
-                    excludeInput.addEventListener('keypress', function(e) {
-                        if (e.key === 'Enter') {
-                            processExcludeInput();
-                        }
-                    });
+                        });
+                        teacherInput.addEventListener('keypress', function(e) {
+                            if (e.key === 'Enter') {
+                                document.getElementById('generateBtn').click();
+                            }
+                        });
+                        const excludeInput = document.getElementById('excludeInput');
+                        excludeInput.addEventListener('keypress', function(e) {
+                            if (e.key === 'Enter') {
+                                processExcludeInput();
+                            }
+                        });
+                        
+                    } catch (error) {
+                        console.error('解析課程數據時發生錯誤:', error);
+                        document.getElementById('result').innerHTML = 
+                            `<div class="error">錯誤: ${error.message}<br>請檢查課程數據文件(tt.csv)格式是否正確。</div>`;
+                        throw error;
+                    }
                 })
                 .catch(error => {
+                    console.error('載入課程數據失敗:', error);
                     document.getElementById('result').innerHTML = 
-                        `<div class="error">錯誤: ${error.message}<br>請確保課程數據文件(tt.csv)存在且格式正確。</div>`;
+                        `<div class="error">錯誤: 無法載入課程數據<br>${error.message}<br>
+                         請確保課程數據文件(tt.csv)存在且可訪問。</div>`;
                 });
+                
             document.getElementById('generateBtn').addEventListener('click', function() {
                 try {
                     isResultDisabled = false;
@@ -629,9 +670,8 @@
             let sortedTeachers = [...allTeachers];
             let allPeriods = [];
             if (currentDay !== null) {
-                allPeriods = Array.from(new Set(timetableData.filter(item => item.day === currentDay).map(item => item.period)));
+                allPeriods = Array.from(new Set(timetableData.filter(item => item.day === currentDay).map(item => item.period));
             }
-            // 計算每位老師的空堂
             let teacherFreeCount = {};
             sortedTeachers.forEach(teacher => {
                 let free = 0;
@@ -780,7 +820,6 @@
             });
             let allPeriods = periods;
             let alreadyPrimary = new Set();
-            // 預先計算空堂數
             let teacherFreeCount = {};
             availableTeachers.forEach(teacher => {
                 let free = 0;
@@ -964,14 +1003,10 @@
                 const lessons = sub.lessons;
                 const primary = sub.primary.teacher;
                 confirmedTeachers.add(primary);
-                
-                // 更新代課數目變化
                 if (!pendingUpdates[primary]) pendingUpdates[primary] = 0;
                 pendingUpdates[primary] += 1;
-                
                 if (!pendingUpdates[absentTeacher]) pendingUpdates[absentTeacher] = 0;
                 pendingUpdates[absentTeacher] -= 1;
-                
                 lessons.forEach(lesson => {
                     substituteRecords.push({
                         absentTeacher,
@@ -986,7 +1021,10 @@
                     });
                 });
             });
-            
+            for (const teacher in pendingUpdates) {
+                if (substData[teacher] === undefined) substData[teacher] = 0;
+                substData[teacher] += pendingUpdates[teacher];
+            }
             showPendingUpdates();
             confirmedTeachers.forEach(teacher => {
                 excludedTeachersSet.add(teacher);
