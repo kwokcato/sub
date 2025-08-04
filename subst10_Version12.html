@@ -211,7 +211,7 @@
         <h3>代課甄選步驟剖析</h3>
         <div id="analysisContent"></div>
         <div class="top-subst-list">
-            <h4>代堂數目最小的五位教師分析</h4>
+            <h4>首選教師分析</h4>
             <div id="topSubstTeachers"></div>
         </div>
     </div>
@@ -574,7 +574,7 @@
             const sortedTeachers = [...allTeachers]
                 .filter(teacher => substData[teacher] !== undefined)
                 .sort((a, b) => (substData[a] || 0) - (substData[b] || 0))
-                .slice(0, 5);
+                .slice(0, 10); // 0,5
             
             topSubstTeachers = sortedTeachers.map(teacher => {
                 const reasons = [];
