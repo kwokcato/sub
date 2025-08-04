@@ -520,7 +520,8 @@
             
             selectionAnalysis.forEach((analysis, index) => {
                 html += `<div class="analysis-item">`;
-                html += `<h4>第${analysis.period}節代課教師選擇分析</h4>`;
+                // html += `<h4>第${analysis.period}節代課教師選擇分析</h4>`;
+                html += `<h4>第${analysis.period}節代課教師選擇分析 (首選: ${analysis.teacher})</h4>`;
                 
                 if (analysis.isEmergency) {
                     html += `<p><span class="analysis-criteria">緊急代課：</span>`;
