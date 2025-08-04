@@ -636,7 +636,7 @@
             let sortedTeachers = [...allTeachers];
             let allPeriods = [];
             if (currentDay !== null) {
-                allPeriods = Array.from(new Set(timetableData.filter(item => item.day === currentDay).map(item => item.period));
+                allPeriods = Array.from(new Set(timetableData.filter(item => item.day === currentDay).map(item => item.period)));
             }
             // 計算每位老師的空堂
             let teacherFreeCount = {};
@@ -744,7 +744,7 @@
                     }
                     absentLessonsByPeriod[lesson.period].push(lesson);
                 });
-            const periods = Array.from(new Set(timetableData.filter(item => item.day === day).map(item => item.period));
+            const periods = Array.from(new Set(timetableData.filter(item => item.day === day).map(item => item.period)));
             const absentPeriods = Object.keys(absentLessonsByPeriod).map(Number).sort((a, b) => a - b);
             if (absentPeriods.length === 0) {
                 document.getElementById('result').innerHTML = 
