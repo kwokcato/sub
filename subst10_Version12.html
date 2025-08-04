@@ -983,7 +983,7 @@
                     absentLessonsByPeriod[lesson.period].push(lesson);
                 });
             
-            const periods = Array.from(new Set(timetableData.filter(item => item.day === day).map(item => item.period));
+            const periods = Array.from(new Set(timetableData.filter(item => item.day === day).map(item => item.period)));
             const absentPeriods = Object.keys(absentLessonsByPeriod).map(Number).sort((a, b) => a - b);
             
             if (absentPeriods.length === 0) {
